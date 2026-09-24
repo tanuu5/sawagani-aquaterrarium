@@ -3,6 +3,7 @@ import { addPatch, worldPosPatch } from '../core/shared.js';
 
 // 水槽を置いた部屋（背景・映り込み・環境光の元）
 const DESK_Y = -0.8; // 天板上面
+const LAMP_Z = -17; // ランプの位置（机の奥の縁は z=-26。台座の半径 6.5 がはみ出さない位置）
 
 function woodPatch(mat) {
   worldPosPatch(mat);
@@ -54,6 +55,13 @@ export function buildRoom(scene) {
   desk.position.set(0, DESK_Y - 2, 14);
   desk.receiveShadow = true;
   group.add(desk);
+  // 机の脚（床まで）
+  const legH = DESK_Y - 4 - -76;
+  for (const [lx, lz] of [[-80, -22], [80, -22], [-80, 50], [80, 50]]) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(5, legH, 5), deskMat);
+    leg.position.set(lx, -76 + legH / 2, lz);
+    group.add(leg);
+  }
 
   // 水槽マット
   const mat = new THREE.Mesh(
@@ -90,22 +98,33 @@ export function buildRoom(scene) {
   win.rotation.y = Math.PI / 2;
   win.position.set(-129.5, 55, 55);
   group.add(win);
+  // 窓枠: 窓台（y=-1.5 が上面）から上枠（y=110〜114）まで隙間なく組む
   const frameMat = new THREE.MeshStandardMaterial({ color: 0xe8e4dc, roughness: 0.6 });
-  for (const [w, h, y, z] of [[4, 118, 55, 55 - 47], [4, 118, 55, 55 + 47], [4, 98, 55, 55], [0, 0, 0, 0]]) {
-    if (!w) continue;
+  const frame = (h, w, y, z) => {
     const f = new THREE.Mesh(new THREE.BoxGeometry(3, h, w), frameMat);
     f.position.set(-128.5, y, z);
     group.add(f);
-  }
+  };
+  const sillTop = -1.5, headBottom = 110, headTop = 114;
+  frame(headTop - sillTop, 4, (headTop + sillTop) / 2, 8); // 左の縦枠
+  frame(headTop - sillTop, 4, (headTop + sillTop) / 2, 102); // 右の縦枠
+  frame(headBottom - sillTop, 3, (headBottom + sillTop) / 2, 55); // 中央の縦桟
+  frame(headTop - headBottom, 98, (headTop + headBottom) / 2, 55); // 上枠
   const sill = new THREE.Mesh(new THREE.BoxGeometry(8, 3, 100), frameMat);
-  sill.position.set(-127, -3, 55);
+  sill.position.set(-127, sillTop - 1.5, 55);
   group.add(sill);
 
   // 背面の棚と小物（ボケて映る）
   const shelfMat = woodPatch(new THREE.MeshStandardMaterial({ color: 0x6a4a30, roughness: 0.5 }));
   const shelf = new THREE.Mesh(new THREE.BoxGeometry(90, 2.5, 22), shelfMat);
-  shelf.position.set(18, 42, -36);
+  shelf.position.set(18, 42, -36.95); // 背面の壁（z=-48）に付ける
   group.add(shelf);
+  // 棚受け
+  for (const bxx of [-22, 58]) {
+    const br = new THREE.Mesh(new THREE.BoxGeometry(1.2, 10, 14), new THREE.MeshStandardMaterial({ color: 0x2a2520, roughness: 0.45, metalness: 0.5 }));
+    br.position.set(bxx, 35.8, -40.9);
+    group.add(br);
+  }
   const bookColors = [0x2f4a5c, 0x8a3b2a, 0xc9b58f, 0x3e5a3a, 0x6b5a8a, 0xd8d0c0, 0x303030, 0xa0522d];
   let bx = -18;
   for (let i = 0; i < 11; i++) {
@@ -130,29 +149,44 @@ export function buildRoom(scene) {
   const pot = new THREE.Mesh(new THREE.LatheGeometry(potProfile, 40), new THREE.MeshStandardMaterial({ color: 0xd9d2c5, roughness: 0.35 }));
   pot.position.set(50, 43.25, -36);
   group.add(pot);
+  const soil = new THREE.Mesh(new THREE.CircleGeometry(8.4, 32), new THREE.MeshStandardMaterial({ color: 0x2a1c12, roughness: 0.95 }));
+  soil.rotation.x = -Math.PI / 2;
+  soil.position.set(50, 55.6, -36);
+  group.add(soil);
   const leafMat = new THREE.MeshStandardMaterial({ color: 0x2f5a22, roughness: 0.5, side: THREE.DoubleSide });
+  const stemMat = new THREE.MeshStandardMaterial({ color: 0x3d5a24, roughness: 0.6 });
+  const soilTop = new THREE.Vector3(50, 55.6, -36);
   for (let i = 0; i < 14; i++) {
     const a = (i / 14) * Math.PI * 2 + i * 0.7;
     const leaf = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), leafMat);
     leaf.scale.set(5, 0.4, 2.2);
-    leaf.position.set(50 + Math.cos(a) * 6, 60 + (i % 4) * 3.5, -36 + Math.sin(a) * 6);
+    const lp = new THREE.Vector3(50 + Math.cos(a) * 6, 60 + (i % 4) * 3.5, -36 + Math.sin(a) * 6);
+    leaf.position.copy(lp);
     leaf.rotation.set(0.3 * Math.sin(i), -a, 0.5 + 0.2 * Math.cos(i * 3));
     group.add(leaf);
+    // 鉢の土から葉の付け根までの茎
+    const base = soilTop.clone().add(new THREE.Vector3(Math.cos(a) * 1.2, 0, Math.sin(a) * 1.2));
+    const tip = lp.clone().add(new THREE.Vector3(-Math.cos(a) * 3.2, 0, -Math.sin(a) * 3.2));
+    const len = base.distanceTo(tip);
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.3, len, 6), stemMat);
+    stem.position.copy(base).lerp(tip, 0.5);
+    stem.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), tip.clone().sub(base).normalize());
+    group.add(stem);
   }
 
   // 机の奥のランプ（夜に灯る）
   const lampShadeMat = new THREE.MeshStandardMaterial({ color: 0xf2e6d0, roughness: 0.6, emissive: new THREE.Color(1.0, 0.72, 0.42), emissiveIntensity: 0 });
   const shade = new THREE.Mesh(new THREE.CylinderGeometry(7, 10, 12, 32, 1, true), lampShadeMat);
-  shade.position.set(-52, 26, -30);
+  shade.position.set(-52, 26, LAMP_Z);
   group.add(shade);
   const lampBase = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 26, 12), new THREE.MeshStandardMaterial({ color: 0x2a2520, roughness: 0.4, metalness: 0.6 }));
-  lampBase.position.set(-52, 12.5, -30);
+  lampBase.position.set(-52, 12.5, LAMP_Z);
   group.add(lampBase);
   const lampFoot = new THREE.Mesh(new THREE.CylinderGeometry(6, 6.5, 1.2, 32), lampBase.material);
-  lampFoot.position.set(-52, DESK_Y + 0.6, -30);
+  lampFoot.position.set(-52, DESK_Y + 0.6, LAMP_Z);
   group.add(lampFoot);
   const lampLight = new THREE.PointLight(0xffb070, 0, 0, 2);
-  lampLight.position.set(-52, 24, -30);
+  lampLight.position.set(-52, 24, LAMP_Z);
   lampLight.layers.enableAll();
   group.add(lampLight);
 
@@ -218,7 +252,7 @@ export function buildEnvScene({ night = 0 } = {}) {
     moon.position.set(0, 31.4, 1.5);
     s.add(moon);
     const lamp = new THREE.Mesh(new THREE.SphereGeometry(8, 16, 12), new THREE.MeshBasicMaterial({ color: new THREE.Color(1, 0.7, 0.4).multiplyScalar(night * 2.5) }));
-    lamp.position.set(-52, 26, -30);
+    lamp.position.set(-52, 26, LAMP_Z);
     s.add(lamp);
   }
   return s;

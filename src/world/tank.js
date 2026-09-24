@@ -154,9 +154,11 @@ export function buildTank(scene) {
   }
   // 電源コード
   const cordCurve = new THREE.CatmullRomCurve3([
-    new THREE.Vector3(18.5, 32.4, -3.3), new THREE.Vector3(21, 33.2, -8), new THREE.Vector3(23, 20, -14), new THREE.Vector3(24, 0, -20), new THREE.Vector3(26, -0.4, -30),
-  ]);
-  const cord = new THREE.Mesh(new THREE.TubeGeometry(cordCurve, 60, 0.18, 8, false), new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.5 }));
+    // 照明の後ろから机の上を這い、奥の縁（z=-26）から机の裏へ垂れ下がる
+    new THREE.Vector3(18.5, 32.4, -3.3), new THREE.Vector3(21, 33.2, -8), new THREE.Vector3(23, 20, -14), new THREE.Vector3(24, -0.55, -19),
+    new THREE.Vector3(25, -0.62, -24.8), new THREE.Vector3(25.4, -2.2, -26.4), new THREE.Vector3(25.8, -20, -26.6), new THREE.Vector3(26, -60, -27),
+  ], false, 'centripetal');
+  const cord = new THREE.Mesh(new THREE.TubeGeometry(cordCurve, 160, 0.18, 8, false), new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.5 }));
   group.add(cord);
 
   scene.add(group);
