@@ -72,6 +72,10 @@ tools/serve.py      開発用サーバー
 - `src/world/nav.js`: 上から焼いた高さマップ・天井マップと A* による経路探索
 - `src/core/post.js`: MSAA の 2 パス描画（不透明 → 水面・ガラス）、屈折用コピー、被写界深度、ブルーム、仕上げ
 
+## ライセンス
+
+[MIT License](LICENSE) です。自由に改変・再配布できます。
+
 ## クレジット
 
 - [three.js](https://github.com/mrdoob/three.js)（MIT License）を jsDelivr から読み込んでいます
