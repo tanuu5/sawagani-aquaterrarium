@@ -638,7 +638,7 @@ export class Crab {
     } else {
       // 餌が動いていないのに届かないなら、そこへは行けない
       const still = f && !f.eaten && Math.hypot(f.pos.x - this.foodGoal[0], f.pos.z - this.foodGoal[1]) < 0.5;
-      this.giveUpFood(still);
+      this.giveUpFood(still, false);
     }
   }
 
@@ -646,15 +646,26 @@ export class Crab {
     const f = this.food;
     this.foodGoal = [f.pos.x, f.pos.z];
     // 道がない（登れない岩の上など）
-    if (!this.goTo(f.pos.x, f.pos.z, speed, 'side', () => this.arriveFood())) this.giveUpFood(true);
+    if (!this.goTo(f.pos.x, f.pos.z, speed, 'side', () => this.arriveFood())) this.giveUpFood(true, true);
   }
 
-  // unreachable: 届かない餌として覚え、このカニはもう狙わない
-  giveUpFood(unreachable = false) {
+  // unreachable: 届かない餌として覚え、このカニはもう狙わない。
+  // 道がないときは、ほかのカニからも行けるかを確かめる。どのカニも届かない餌は、やがて溶けて消える
+  giveUpFood(unreachable = false, noPath = false) {
     const f = this.food;
     if (f) {
       f.claimedBy = null;
-      if (unreachable) (f.unreachable || (f.unreachable = new Set())).add(this);
+      if (unreachable) {
+        const set = f.unreachable || (f.unreachable = new Set());
+        set.add(this);
+        const { crabs, nav } = this.env;
+        if (noPath) {
+          for (const c of crabs) {
+            if (!set.has(c) && c.food !== f && !nav.findPath(c.pos.x, c.pos.z, f.pos.x, f.pos.z)) set.add(c);
+          }
+        }
+        if (set.size >= crabs.length) f.abandoned = true;
+      }
     }
     this.food = null;
     this.setPath(null);

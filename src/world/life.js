@@ -77,6 +77,19 @@ export class Foods {
         if (f.state === 'held') { f.state = 'rest'; f.mesh.rotation.set(Math.PI / 2, Math.random() * 6, 0); }
         f.restT += dt;
         f.pos.y = g;
+        // どのカニも届かない餌は、しばらく置かれたあと、ふやけて崩れるように小さくなって消える
+        if (f.abandoned) {
+          f.goneT = (f.goneT || 0) + dt;
+          if (f.goneT > 20) {
+            f.amount -= dt * 0.16;
+            f.mesh.scale.setScalar(Math.cbrt(Math.max(f.amount, 0.01)));
+            if (f.amount <= 0.05) {
+              f.eaten = true;
+              this.scene.remove(f.mesh);
+              continue;
+            }
+          }
+        }
       }
       f.mesh.position.copy(f.pos);
     }
@@ -90,7 +103,7 @@ export class Foods {
       if (f.eaten || f.state === 'air' || f.heldBy) continue;
       if (f.state === 'rest' && f.restT < 0.8) continue;
       if (f.claimedBy && f.claimedBy !== crab) continue;
-      if (f.unreachable && f.unreachable.has(crab)) continue;
+      if (f.abandoned || (f.unreachable && f.unreachable.has(crab))) continue;
       const d = Math.hypot(f.pos.x - crab.pos.x, f.pos.z - crab.pos.z);
       if (d < 24 && d < bd) { bd = d; best = f; }
     }

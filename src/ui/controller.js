@@ -168,8 +168,8 @@ export class Controller {
     if (this.feedMode) {
       const p = this.pickGround(ray);
       if (!p) { this.hint('水槽の中をクリックしてください'); return; }
-      // どのカニも届かない餌は数えない
-      const alive = this.env.foods.items.filter((f) => !f.eaten && !(f.unreachable && f.unreachable.size >= this.world.crabs.length)).length;
+      // どのカニも届かない餌（やがて消える）は数えない
+      const alive = this.env.foods.items.filter((f) => !f.eaten && !f.abandoned).length;
       if (alive >= 5) { this.hint('えさが残っています。食べ終わるまで待ちましょう'); return; }
       this.env.foods.drop(p.x, p.z);
       this.hint('えさの匂いに気づくと、カニが寄ってきます');
