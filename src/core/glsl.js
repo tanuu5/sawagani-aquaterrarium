@@ -3,6 +3,8 @@
 export const NOISE_GLSL = /* glsl */ `
 #ifndef KANI_NOISE
 #define KANI_NOISE
+// 長さ 0 のベクトルを正規化して NaN を出さないための安全版
+vec3 safeNormalize(vec3 v, vec3 fallback) { float l2 = dot(v, v); return l2 > 1e-12 ? v * inversesqrt(l2) : fallback; }
 float hash11(float p) { p = fract(p * .1031); p *= p + 33.33; p *= p + p; return fract(p); }
 float hash12(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 float hash13(vec3 p3) { p3 = fract(p3 * .1031); p3 += dot(p3, p3.zyx + 31.32); return fract((p3.x + p3.y) * p3.z); }
@@ -127,7 +129,7 @@ float causticLayer(vec2 uv, float time) {
     c += 1.0 / length(vec2(p.x / (sin(i.x + t) / inten), p.y / (cos(i.y + t) / inten)));
   }
   c /= 4.0;
-  c = 1.17 - pow(c, 1.4);
+  c = 1.17 - pow(max(c, 0.0), 1.4);
   return pow(abs(c), 7.0);
 }
 #endif
@@ -163,9 +165,9 @@ float causticAt(vec3 wp, float depthBelow) {
   float t = uTime * 0.5;
   float a = causticLayer(p * 0.21 + vec2(0.13, 0.71), t);
   float b = causticLayer(p * 0.29 * mat2(0.8, 0.6, -0.6, 0.8) + vec2(3.1, 1.3), t * 1.21 + 11.0);
-  float c = sqrt(a * b) * 2.4 + (a + b) * 0.22;
+  float c = sqrt(max(a * b, 0.0)) * 2.4 + (a + b) * 0.22;
   // 平均がおよそ 1 になるよう正規化（光は集まるだけで失われない）。線を強調
-  c = pow(c * 2.2, 1.35) * 1.05;
+  c = pow(max(c * 2.2, 0.0), 1.35) * 1.05;
   c = mix(1.0, c, 0.85);
   float focus = smoothstep(0.05, 1.0, depthBelow);
   c = mix(1.0, c, focus);

@@ -193,7 +193,7 @@ vec3 tSoilCol(vec3 p, float fade, out float hgt) {
         vec3 r1 = cross(dpdy, normal), r2 = cross(normal, dpdx);
         float det = dot(dpdx, r1);
         vec3 grad = sign(det) * (dhx * r1 + dhy * r2);
-        normal = normalize(abs(det) * normal - grad * 1.0);
+        normal = safeNormalize(abs(det) * normal - grad, normal);
       }`],
     ],
   });

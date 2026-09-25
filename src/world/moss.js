@@ -89,7 +89,10 @@ export function buildRockMoss(scene, rocks, { shells = 18, thick = 0.5 } = {}) {
       const nz = THREE.MathUtils.smoothstep(noise(v.x, v.y, v.z), 0.4, 0.62);
       // 水面より下や水際には付けない
       const dry = THREE.MathUtils.smoothstep(v.y, 5.4, 6.2);
-      wm[i] = up * nz * dry * (def.type === 'river' ? 0.7 : 1);
+      // ガラスぎわにも付けない（苔の厚みでガラスを突き抜けないように）
+      const toWall = Math.min(v.x - TANK.ix0, TANK.ix1 - v.x, v.z - TANK.iz0, TANK.iz1 - v.z);
+      const wall = THREE.MathUtils.smoothstep(toWall, 0.6, 1.1);
+      wm[i] = up * nz * dry * wall * (def.type === 'river' ? 0.7 : 1);
     }
     for (let t = 0; t < I.length; t += 3) {
       const a = I[t], b = I[t + 1], c = I[t + 2];
@@ -188,7 +191,7 @@ function mossMaterial(thick) {
         vec3 r1 = cross(dpdy, normal), r2 = cross(normal, dpdx);
         float det = dot(dpdx, r1);
         vec3 grad = sign(det) * (dhx * r1 + dhy * r2);
-        normal = normalize(abs(det) * normal - grad);
+        normal = safeNormalize(abs(det) * normal - grad, normal);
       }`],
       ['#include <aomap_fragment>', `#include <aomap_fragment>
       {
@@ -279,7 +282,9 @@ export function buildSugigoke(scene) {
     for (let i = 0; i < c.n; i++) {
       const a = rng.range(0, Math.PI * 2);
       const rr = c.r * Math.sqrt(rng.next());
-      const x = c.x + Math.cos(a) * rr, z = c.z + Math.sin(a) * rr;
+      // 葉の広がり（約 0.5cm）がガラスを越えないよう内側に収める
+      const x = THREE.MathUtils.clamp(c.x + Math.cos(a) * rr, TANK.ix0 + 0.8, TANK.ix1 - 0.8);
+      const z = THREE.MathUtils.clamp(c.z + Math.sin(a) * rr, TANK.iz0 + 0.8, TANK.iz1 - 0.8);
       const edge = rr / c.r;
       const h = heightAt(x, z);
       const sc = (1.1 + rng.range(-0.2, 0.35)) * (1 - edge * 0.45);

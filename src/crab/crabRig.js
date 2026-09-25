@@ -88,7 +88,7 @@ function crabMaterial(palette) {
         vec3 r1 = cross(dpdy, normal), r2 = cross(normal, dpdx);
         float det = dot(dpdx, r1);
         vec3 grad = sign(det) * (dhx * r1 + dhy * r2);
-        normal = normalize(abs(det) * normal - grad);
+        normal = safeNormalize(abs(det) * normal - grad, normal);
       }`],
       ['#include <lights_physical_fragment>', `#include <lights_physical_fragment>
       #ifdef USE_CLEARCOAT
@@ -242,8 +242,50 @@ export class CrabRig {
     mesh.frustumCulled = false;
     this.mesh = mesh;
 
+    // ガラスとの当たり用: 骨ごとの頂点範囲（骨ローカルの箱の角）。
+    // 胴に固定された部分（甲羅・ハサミ・眼・脚の付け根）と、IK で動く脚の先とに分ける
+    const boxes = bones.map(() => new THREE.Box3());
+    const pa = merged.attributes.position, sia = merged.attributes.skinIndex, inv = mesh.skeleton.boneInverses;
+    const p = new THREE.Vector3();
+    for (let i = 0; i < pa.count; i++) {
+      const bi = sia.getX(i);
+      boxes[bi].expandByPoint(p.fromBufferAttribute(pa, i).applyMatrix4(inv[bi]));
+    }
+    const hullOf = (bone) => {
+      const b = boxes[bones.indexOf(bone)];
+      if (b.isEmpty()) return null;
+      const pts = [];
+      for (let c = 0; c < 8; c++) pts.push(new THREE.Vector3(c & 1 ? b.max.x : b.min.x, c & 2 ? b.max.y : b.min.y, c & 4 ? b.max.z : b.min.z));
+      return { bone, pts };
+    };
+    const legPart = new Set();
+    for (const l of this.legs) {
+      const chain = [l.bones.lift, l.bones.knee, l.bones.wrist, l.bones.ankle];
+      for (const b of chain) legPart.add(b);
+      l.hull = chain.map(hullOf).filter(Boolean);
+    }
+    this.hull = bones.filter((b) => !legPart.has(b)).map(hullOf).filter(Boolean);
+
     this.claw = { l: {}, r: {} };
     this.setRestPose();
+  }
+
+  // 直前に更新された姿勢での水平方向の広がり（ワールド座標）
+  extents(out, hull = this.hull) {
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    for (const h of hull) {
+      const e = h.bone.matrixWorld.elements;
+      for (const p of h.pts) {
+        const x = e[0] * p.x + e[4] * p.y + e[8] * p.z + e[12];
+        const z = e[2] * p.x + e[6] * p.y + e[10] * p.z + e[14];
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (z < z0) z0 = z;
+        if (z > z1) z1 = z;
+      }
+    }
+    out.x0 = x0; out.x1 = x1; out.z0 = z0; out.z1 = z1;
+    return out;
   }
 
   setPalette(p) {

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { addPatch, worldPosPatch, waterFxPatch, LAYER_NAV, WATER_LEVEL } from '../core/shared.js';
+import { addPatch, worldPosPatch, waterFxPatch, LAYER_NAV, WATER_LEVEL, TANK } from '../core/shared.js';
 import { RNG, clamp, lerp } from '../core/rng.js';
 import { Noise } from '../core/noise.js';
 import { heightAt, mossAt, terrainAt, ROCKS } from './layout.js';
@@ -148,6 +148,12 @@ export function buildLeafLitter(scene) {
     const lift = inWater ? 0.05 : 0.08 + mossAt(x, z) * 0.35;
     m.position.set(x, heightAt(x, z) + lift, z);
     m.rotation.set(rng.range(-0.12, 0.12), rng.range(0, Math.PI * 2), rng.range(-0.12, 0.12));
+    // ガラスの外へはみ出す葉は内側へずらす
+    m.updateMatrixWorld(true);
+    const bb = new THREE.Box3().setFromObject(m);
+    const mg = 0.2;
+    m.position.x += Math.max(0, TANK.ix0 + mg - bb.min.x) - Math.max(0, bb.max.x - (TANK.ix1 - mg));
+    m.position.z += Math.max(0, TANK.iz0 + mg - bb.min.z) - Math.max(0, bb.max.z - (TANK.iz1 - mg));
     m.castShadow = true;
     m.receiveShadow = true;
     group.add(m);
@@ -189,7 +195,7 @@ export function buildDriftwood(scene) {
         float dhx = dFdx(wH), dhy = dFdy(wH);
         vec3 r1 = cross(dpdy, normal), r2 = cross(normal, dpdx);
         float det = dot(dpdx, r1);
-        normal = normalize(abs(det) * normal - sign(det) * (dhx * r1 + dhy * r2));
+        normal = safeNormalize(abs(det) * normal - sign(det) * (dhx * r1 + dhy * r2), normal);
       }`]],
   });
   waterFxPatch(mat, { wetHeight: 0.6, wetDarken: 0.4, wetGloss: 0.7 });

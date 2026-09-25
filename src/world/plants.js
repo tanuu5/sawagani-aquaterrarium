@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { addPatch, worldPosPatch, waterFxPatch, shared } from '../core/shared.js';
+import { addPatch, worldPosPatch, waterFxPatch, shared, TANK } from '../core/shared.js';
 import { RNG, clamp, lerp } from '../core/rng.js';
 import { heightAt } from './layout.js';
 
@@ -47,23 +47,76 @@ function plantMaterial({ roughness = 0.55, gloss = 0 } = {}) {
   return m;
 }
 
+// ---- 水槽の内側に収める ----
+// ガラスの内面から少し離す（揺れのアニメーション分の余白を含む）
+const GLASS_MARGIN = 0.25;
+const BOUNDS = {
+  x0: TANK.ix0 + GLASS_MARGIN, x1: TANK.ix1 - GLASS_MARGIN,
+  z0: TANK.iz0 + GLASS_MARGIN, z1: TANK.iz1 - GLASS_MARGIN,
+  y1: TANK.h - 1.0,
+};
+function outside(x, y, z) {
+  return Math.max(0, BOUNDS.x0 - x, x - BOUNDS.x1, BOUNDS.z0 - z, z - BOUNDS.z1, y - BOUNDS.y1);
+}
+// 最後の保険: 残ったはみ出しはガラスに押しつけられた形に収める
+function containVertices(b) {
+  const p = b.p;
+  for (let i = 0; i < p.length; i += 3) {
+    p[i] = clamp(p[i], BOUNDS.x0, BOUNDS.x1);
+    p[i + 1] = Math.min(p[i + 1], BOUNDS.y1);
+    p[i + 2] = clamp(p[i + 2], BOUNDS.z0, BOUNDS.z1);
+  }
+}
+function angDiff(a, b) {
+  let d = a - b;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  return d;
+}
+
 // ---- シダ（羽状複葉） ----
-function addFrond(b, rng, base, azim, opt) {
-  const L = opt.length;
-  const segs = 22;
+function rachis(base, azim, opt, segs = 22) {
   const dirH = new THREE.Vector3(Math.sin(azim), 0, Math.cos(azim));
-  const side0 = new THREE.Vector3().crossVectors(UP, dirH).normalize();
   const pts = [], tans = [];
   const p = base.clone();
-  const curl = rng.range(-0.25, 0.25);
   for (let s = 0; s <= segs; s++) {
     const t = s / segs;
     const th = opt.elev - opt.droop * Math.pow(t, 1.4);
-    const d = dirH.clone().applyAxisAngle(UP, curl * t).multiplyScalar(Math.cos(th)).addScaledVector(UP, Math.sin(th));
+    const d = dirH.clone().applyAxisAngle(UP, opt.curl * t).multiplyScalar(Math.cos(th)).addScaledVector(UP, Math.sin(th));
     pts.push(p.clone());
     tans.push(d.clone().normalize());
-    p.addScaledVector(d, L / segs);
+    p.addScaledVector(d, opt.length / segs);
   }
+  return { pts, tans };
+}
+const pinnaShape = (t) => Math.pow(Math.sin(Math.PI * (0.1 + 0.9 * t)), 0.7) * (1 - 0.55 * t) * Math.min(1, t * 6);
+
+// 葉軸と羽片の先端がどれだけ水槽の外へ出るか
+function frondOverflow(base, azim, opt) {
+  const { pts, tans } = rachis(base, azim, opt);
+  const segs = pts.length - 1;
+  const sd = new THREE.Vector3(), tip = new THREE.Vector3();
+  let v = 0;
+  for (let s = 0; s <= segs; s++) {
+    const t = s / segs, p = pts[s];
+    v = Math.max(v, outside(p.x, p.y, p.z));
+    const len = opt.pinnaLen * pinnaShape(t) * 1.1;
+    if (len < 0.15) continue;
+    sd.crossVectors(tans[s], UP);
+    if (sd.lengthSq() < 1e-8) continue;
+    sd.normalize();
+    const fwd = opt.pinnaAngle * (1 + 0.3 * t);
+    for (const sg of [1, -1]) {
+      tip.copy(p).addScaledVector(sd, sg * Math.cos(fwd) * len).addScaledVector(tans[s], Math.sin(fwd) * len);
+      v = Math.max(v, outside(tip.x, tip.y, tip.z));
+    }
+  }
+  return v;
+}
+
+function addFrond(b, rng, base, azim, opt) {
+  const segs = 22;
+  const { pts, tans } = rachis(base, azim, opt, segs);
   const at = (t) => {
     const f = t * segs;
     const i = Math.min(Math.floor(f), segs - 1);
@@ -97,8 +150,7 @@ function addFrond(b, rng, base, azim, opt) {
     for (const sideSign of [1, -1]) {
       const t = 0.1 + 0.88 * ((k + (sideSign > 0 ? 0 : 0.5)) / N);
       if (t > 0.985) continue;
-      const shape = Math.pow(Math.sin(Math.PI * (0.1 + 0.9 * t)), 0.7) * (1 - 0.55 * t) * Math.min(1, t * 6);
-      const len = opt.pinnaLen * shape * rng.range(0.9, 1.08);
+      const len = opt.pinnaLen * pinnaShape(t) * rng.range(0.9, 1.08);
       if (len < 0.15) continue;
       const { p: rp, t: rt } = at(t);
       const sd = new THREE.Vector3().crossVectors(rt, UP).normalize().multiplyScalar(sideSign);
@@ -148,15 +200,28 @@ export function buildFerns(scene) {
   ];
   for (const pl of plants) {
     const y = heightAt(pl.x, pl.z) - 0.1;
+    // 水槽の中央（やや手前）へ向かう方位
+    const toCenter = Math.atan2(-pl.x, 2 - pl.z);
     for (let f = 0; f < pl.fronds; f++) {
-      const az = (f / pl.fronds) * Math.PI * 2 + rng.range(-0.3, 0.3);
+      let az = (f / pl.fronds) * Math.PI * 2 + rng.range(-0.3, 0.3);
       const L = rng.range(pl.length[0], pl.length[1]);
-      addFrond(b, rng, new THREE.Vector3(pl.x + Math.sin(az) * 0.2, y, pl.z + Math.cos(az) * 0.2), az, {
-        length: L, elev: rng.range(1.05, 1.35), droop: rng.range(1.2, 1.9), pinnae: Math.round(L * 2.4),
+      const opt = {
+        length: L, elev: rng.range(1.05, 1.35), droop: rng.range(1.2, 1.9), curl: rng.range(-0.25, 0.25),
         pinnaLen: L * 0.2 * pl.scale, pinnaW: 0.2 * pl.scale, pinnaAngle: rng.range(0.55, 0.8), pinnaDroop: 0.6, lobes: 5, scale: pl.scale,
-      });
+      };
+      const base = new THREE.Vector3(pl.x + Math.sin(az) * 0.2, y, pl.z + Math.cos(az) * 0.2);
+      // ガラスを突き抜ける葉は、内側へ向けて少し短く・立たせる（壁ぎわの植物が空いている方へ伸びるように）
+      for (let tries = 0; tries < 14 && frondOverflow(base, az, opt) > 0; tries++) {
+        az += angDiff(toCenter, az) * 0.2;
+        opt.length *= 0.94;
+        opt.pinnaLen *= 0.94;
+        opt.elev = Math.min(opt.elev + 0.05, 1.45);
+      }
+      opt.pinnae = Math.round(opt.length * 2.4);
+      addFrond(b, rng, base, az, opt);
     }
   }
+  containVertices(b);
   const mesh = new THREE.Mesh(b.geometry(), plantMaterial({ roughness: 0.6 }));
   mesh.castShadow = true;
   mesh.receiveShadow = true;
@@ -178,7 +243,11 @@ export function buildAcorus(scene) {
   ];
   for (const cl of clumps) {
     const y = heightAt(cl.x, cl.z) - 0.15;
-    const fanAz = rng.range(0, Math.PI);
+    let fanAz = rng.range(0, Math.PI);
+    // 壁ぎわの株は扇を壁と平行に広げる（ガラスを突き抜けないように）
+    const dx = Math.min(cl.x - TANK.ix0, TANK.ix1 - cl.x), dz = Math.min(cl.z - TANK.iz0, TANK.iz1 - cl.z);
+    if (dx < 3.5) fanAz = Math.PI / 2 + (fanAz - Math.PI / 2) * 0.12;
+    else if (dz < 3.5) fanAz = (fanAz - Math.PI / 2) * 0.12;
     for (let i = 0; i < cl.n; i++) {
       const f = (i / (cl.n - 1)) * 2 - 1;
       const az = fanAz + rng.range(-0.25, 0.25);
@@ -194,9 +263,7 @@ export function buildAcorus(scene) {
       for (let s = 0; s <= segs; s++) {
         const u = s / segs;
         const th = Math.PI / 2 - lean * (0.6 + u * 0.4) - droop * u * u * Math.sign(lean || 1) * 0.9;
-        const dir = fanDir.clone().multiplyScalar(Math.cos(th) * Math.sign(lean || 1) * Math.sign(Math.cos(th)) * 1).addScaledVector(UP, Math.sin(th));
-        dir.x = fanDir.x * Math.cos(th); dir.z = fanDir.z * Math.cos(th); dir.y = Math.sin(th);
-        dir.normalize();
+        const dir = new THREE.Vector3(fanDir.x * Math.cos(th), Math.sin(th), fanDir.z * Math.cos(th)).normalize();
         if (s > 0) p = p.clone().addScaledVector(dir, L / segs);
         const across = faceN.clone().applyAxisAngle(dir, u * 0.6 * (i % 2 ? 1 : -1));
         const w = W * (1 - Math.pow(u, 2.2)) + 0.004;
@@ -217,6 +284,7 @@ export function buildAcorus(scene) {
       }
     }
   }
+  containVertices(b);
   const mesh = new THREE.Mesh(b.geometry(), plantMaterial({ roughness: 0.32 }));
   mesh.castShadow = true;
   mesh.receiveShadow = true;

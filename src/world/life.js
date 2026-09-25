@@ -1,6 +1,12 @@
 import * as THREE from 'three';
-import { WATER_LEVEL, LAYER_FX, waterFxPatch } from '../core/shared.js';
+import { WATER_LEVEL, LAYER_FX, TANK, waterFxPatch } from '../core/shared.js';
 import { clamp } from '../core/rng.js';
+
+// 落ちていく餌をガラスの内側に留める
+function keepInside(p) {
+  p.x = clamp(p.x, TANK.ix0 + 0.35, TANK.ix1 - 0.35);
+  p.z = clamp(p.z, TANK.iz0 + 0.35, TANK.iz1 - 0.35);
+}
 
 // ---- 餌 ----
 export class Foods {
@@ -47,6 +53,7 @@ export class Foods {
       if (f.state === 'air') {
         f.vel.y -= 420 * dt;
         f.pos.addScaledVector(f.vel, dt);
+        keepInside(f.pos);
         f.mesh.rotation.x += f.spin.x * dt; f.mesh.rotation.y += f.spin.y * dt;
         if (f.pos.y <= WATER_LEVEL && g < WATER_LEVEL) {
           f.state = 'water';
@@ -62,6 +69,7 @@ export class Foods {
       } else if (f.state === 'water') {
         f.pos.addScaledVector(f.vel, dt);
         f.pos.x += Math.sin(f.restT * 3) * 0.02 * dt;
+        keepInside(f.pos);
         f.restT += dt;
         f.mesh.rotation.x += dt * 0.8;
         if (f.pos.y <= g) { f.pos.y = g; f.state = 'rest'; f.restT = 0; f.mesh.rotation.set(Math.PI / 2, Math.random() * 6, 0); }
@@ -82,6 +90,7 @@ export class Foods {
       if (f.eaten || f.state === 'air' || f.heldBy) continue;
       if (f.state === 'rest' && f.restT < 0.8) continue;
       if (f.claimedBy && f.claimedBy !== crab) continue;
+      if (f.unreachable && f.unreachable.has(crab)) continue;
       const d = Math.hypot(f.pos.x - crab.pos.x, f.pos.z - crab.pos.z);
       if (d < 24 && d < bd) { bd = d; best = f; }
     }
@@ -167,7 +176,7 @@ export class Bubbles {
       fragmentShader: /* glsl */ `
         varying vec3 vN; varying vec3 vV;
         void main() {
-          float f = 1.0 - abs(dot(normalize(vN), normalize(vV)));
+          float f = max(1.0 - abs(dot(normalize(vN), normalize(vV))), 0.0);
           float rim = pow(f, 2.5);
           vec3 L = normalize(vec3(0.2, 1.0, 0.1));
           float spec = pow(max(dot(reflect(-L, normalize(vN)), vV), 0.0), 60.0);

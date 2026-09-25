@@ -6,6 +6,7 @@ import { RNG, clamp, lerp, smoothstep } from '../core/rng.js';
 const D2R = Math.PI / 180;
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _q = new THREE.Quaternion(), _e = new THREE.Euler();
 const UP = new THREE.Vector3(0, 1, 0);
+const _ext = {};
 
 // 鉗脚のポーズ（左側基準、度）
 const POSES = {
@@ -30,6 +31,8 @@ const clonePose = (p) => ({ yaw: p.yaw, lift: [...p.lift], elbow: [...p.elbow], 
 
 const legGroup = (side, n) => (((n % 2 === 1) === side > 0) ? 0 : 1);
 const HOME_R = [0, 2.5, 2.85, 2.8, 2.45];
+// 壁ぎわで脚を無理なく折りたためる、付け根からの水平距離
+const FOLD_R = 1.4;
 const BODY_H = 0.7;
 
 export class Crab {
@@ -65,6 +68,7 @@ export class Crab {
       const dir = new THREE.Vector3(1, 0, 0).applyAxisAngle(UP, leg.theta);
       leg.homeLocal = leg.attach.clone().addScaledVector(dir, HOME_R[leg.n]);
       leg.homeLocal.y = 0;
+      leg.foldLocal = leg.attach.clone().addScaledVector(dir, FOLD_R);
     }
     this.swinging = [false, false];
     this.groupLast = [0, 0];
@@ -108,6 +112,9 @@ export class Crab {
   homeWorld(leg, out) {
     out.copy(leg.homeLocal).multiplyScalar(this.scale).applyAxisAngle(UP, this.heading);
     out.x += this.pos.x; out.z += this.pos.z;
+    // 足先はガラスの内側まで（壁ぎわではガラスに脚を突っ張る）
+    out.x = clamp(out.x, TANK.ix0 + 0.15, TANK.ix1 - 0.15);
+    out.z = clamp(out.z, TANK.iz0 + 0.15, TANK.iz1 - 0.15);
     out.y = this.env.nav.groundAt(out.x, out.z);
     return out;
   }
@@ -259,10 +266,26 @@ export class Crab {
         this.pos.x += (dx / d) * push; this.pos.z += (dz / d) * push;
       }
     }
-    // 水槽の壁
-    const m = 1.6 * this.scale;
-    this.pos.x = clamp(this.pos.x, TANK.ix0 + m, TANK.ix1 - m);
-    this.pos.z = clamp(this.pos.z, TANK.iz0 + m, TANK.iz1 - m);
+    // 水槽の壁: 直前の姿勢での外形（甲羅・ハサミ・脚の付け根）と、脚を折りたたむ場所が
+    // ガラスの内側に収まる位置まで（向きによって壁に寄れる距離が変わる）
+    const ex = this.rig.extents(_ext);
+    const g = this.group.matrixWorld.elements, pad = 0.06;
+    if (Number.isFinite(ex.x0 + ex.x1 + ex.z0 + ex.z1)) {
+      let mx0 = g[12] - ex.x0, mx1 = ex.x1 - g[12], mz0 = g[14] - ex.z0, mz1 = ex.z1 - g[14];
+      const ch = Math.cos(this.heading) * this.scale, sh = Math.sin(this.heading) * this.scale;
+      for (const leg of this.rig.legs) {
+        const f = leg.foldLocal;
+        const wx = f.x * ch + f.z * sh, wz = -f.x * sh + f.z * ch;
+        mx0 = Math.max(mx0, -wx); mx1 = Math.max(mx1, wx);
+        mz0 = Math.max(mz0, -wz); mz1 = Math.max(mz1, wz);
+      }
+      this.pos.x = clamp(this.pos.x, TANK.ix0 + pad + mx0, TANK.ix1 - pad - mx1);
+      this.pos.z = clamp(this.pos.z, TANK.iz0 + pad + mz0, TANK.iz1 - pad - mz1);
+    } else {
+      const m = 2.2 * this.scale;
+      this.pos.x = clamp(this.pos.x, TANK.ix0 + m, TANK.ix1 - m);
+      this.pos.z = clamp(this.pos.z, TANK.iz0 + m, TANK.iz1 - m);
+    }
     return arriving;
   }
 
@@ -285,6 +308,8 @@ export class Crab {
         const c = Math.cos(a), sn = Math.sin(a);
         _v.x = this.pos.x + rx * c + rz * sn; _v.z = this.pos.z - rx * sn + rz * c;
       }
+      _v.x = clamp(_v.x, TANK.ix0 + 0.15, TANK.ix1 - 0.15);
+      _v.z = clamp(_v.z, TANK.iz0 + 0.15, TANK.iz1 - 0.15);
       _v.y = this.env.nav.groundAt(_v.x, _v.z);
       leg.predicted = leg.predicted || new THREE.Vector3();
       leg.predicted.copy(_v);
@@ -381,12 +406,25 @@ export class Crab {
 
   applyIK() {
     const root = this.rig.root;
+    root.updateMatrixWorld(true);
     const inv = _q.copy(root.quaternion).invert();
+    const pad = 0.05;
     for (const leg of this.rig.legs) {
       _v.copy(leg.foot);
       this.group.worldToLocal(_v);
       _v.sub(root.position).applyQuaternion(inv);
       this.rig.solveLeg(leg, _v);
+      // 脚がガラスに入り込むなら、目標を内側へずらして解き直す
+      for (let it = 0; it < 4; it++) {
+        leg.bones.yaw.updateMatrixWorld(true);
+        const ex = this.rig.extents(_ext, leg.hull);
+        const ox = Math.max(0, TANK.ix0 + pad - ex.x0) - Math.max(0, ex.x1 - (TANK.ix1 - pad));
+        const oz = Math.max(0, TANK.iz0 + pad - ex.z0) - Math.max(0, ex.z1 - (TANK.iz1 - pad));
+        if (ox === 0 && oz === 0) break;
+        _v2.set(ox, 0, oz).applyAxisAngle(UP, -this.heading).multiplyScalar(1 / this.scale).applyQuaternion(inv);
+        _v.add(_v2);
+        this.rig.solveLeg(leg, _v);
+      }
     }
   }
 
@@ -491,7 +529,7 @@ export class Crab {
         this.food = f;
         f.claimedBy = this;
         this.setState('toFood', 30);
-        this.goTo(f.pos.x, f.pos.z, 3.6 + this.personality.activity * 1.5, 'side', () => this.arriveFood());
+        this.goToFood(3.6 + this.personality.activity * 1.5);
       }
     }
 
@@ -528,9 +566,9 @@ export class Crab {
         if (!this.food || this.food.eaten || (this.food.heldBy && this.food.heldBy !== this)) {
           this.food = null; this.setPath(null); this.setState('idle', 1);
         } else if (!this.path) {
-          // 餌が動いたら追い直す
-          if (this.stateT > 0.5) this.goTo(this.food.pos.x, this.food.pos.z, 3.6, 'side', () => this.arriveFood());
           if (this.stateT > this.stateDur) { this.food.claimedBy = null; this.food = null; this.setState('idle', 1); }
+          // 餌が動いたら追い直す
+          else if (this.stateT > 0.5) this.goToFood(3.6);
         }
         break;
       }
@@ -598,10 +636,29 @@ export class Crab {
       this.holdClaw = this.rng.next() < 0.5 ? 0 : 1;
       for (const c of this.claws) { c.phase = 'idle'; c.timer = 0.1; }
     } else {
-      if (f) f.claimedBy = null;
-      this.food = null;
-      this.setState('idle', 1);
+      // 餌が動いていないのに届かないなら、そこへは行けない
+      const still = f && !f.eaten && Math.hypot(f.pos.x - this.foodGoal[0], f.pos.z - this.foodGoal[1]) < 0.5;
+      this.giveUpFood(still);
     }
+  }
+
+  goToFood(speed) {
+    const f = this.food;
+    this.foodGoal = [f.pos.x, f.pos.z];
+    // 道がない（登れない岩の上など）
+    if (!this.goTo(f.pos.x, f.pos.z, speed, 'side', () => this.arriveFood())) this.giveUpFood(true);
+  }
+
+  // unreachable: 届かない餌として覚え、このカニはもう狙わない
+  giveUpFood(unreachable = false) {
+    const f = this.food;
+    if (f) {
+      f.claimedBy = null;
+      if (unreachable) (f.unreachable || (f.unreachable = new Set())).add(this);
+    }
+    this.food = null;
+    this.setPath(null);
+    this.setState('idle', 1);
   }
 
   setClawsIfIdle(name = 'rest') {

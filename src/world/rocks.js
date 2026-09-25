@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
-import { addPatch, worldPosPatch, waterFxPatch, LAYER_NAV, LAYER_CEIL } from '../core/shared.js';
+import { addPatch, worldPosPatch, waterFxPatch, LAYER_NAV, LAYER_CEIL, TANK } from '../core/shared.js';
 import { Noise } from '../core/noise.js';
 import { RNG, clamp, smoothstep } from '../core/rng.js';
 import { ROCKS, heightAt } from './layout.js';
@@ -160,7 +160,7 @@ function rockMaterial(kind) {
         vec3 r1 = cross(dpdy, normal), r2 = cross(normal, dpdx);
         float det = dot(dpdx, r1);
         vec3 grad = sign(det) * (dhx * r1 + dhy * r2);
-        normal = normalize(abs(det) * normal - grad);
+        normal = safeNormalize(abs(det) * normal - grad, normal);
       }`],
       ['#include <aomap_fragment>', `#include <aomap_fragment>
       reflectedLight.indirectDiffuse *= vAO;
@@ -241,6 +241,14 @@ export function buildRocks(scene) {
       mesh.position.y = minH + (def.lift || 0) - lowest;
     } else {
       mesh.position.y = minH - lowest - def.sink;
+    }
+    // ガラスを突き抜けないよう内側へずらす（ガラスに触れるのはかまわない）
+    {
+      mesh.updateMatrixWorld(true);
+      const bb = new THREE.Box3().setFromObject(mesh, true);
+      const mg = 0.05;
+      mesh.position.x += Math.max(0, TANK.ix0 + mg - bb.min.x) - Math.max(0, bb.max.x - (TANK.ix1 - mg));
+      mesh.position.z += Math.max(0, TANK.iz0 + mg - bb.min.z) - Math.max(0, bb.max.z - (TANK.iz1 - mg));
     }
     mesh.castShadow = true;
     mesh.receiveShadow = true;

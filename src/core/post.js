@@ -148,7 +148,7 @@ export class PostFX {
           cmin = min(cmin, r); cmax = max(cmax, r);
         }
         coc = (abs(cmin) > abs(cmax)) ? cmin : cmax;
-        gl_FragColor = vec4(acc / wsum, coc);
+        gl_FragColor = vec4(acc / max(wsum, 1e-6), coc);
       }`, { uColor: { value: null }, uDepth: { value: null }, uTexel: { value: new THREE.Vector2() }, ...common, ...cocU });
 
     // ボケ（ゴールデンアングル螺旋によるギャザー）

@@ -41,7 +41,7 @@ function glassMaterial() {
       }`,
     fragment: [['#include <opaque_fragment>', `
       float gNdV = abs(dot(normalize(normal), normalize(vViewPosition)));
-      float gF = 0.082 + (1.0 - 0.082) * pow(1.0 - gNdV, 5.0);
+      float gF = 0.082 + (1.0 - 0.082) * pow(max(1.0 - gNdV, 0.0), 5.0);
       float dropA = 0.0; vec3 dropC = vec3(0.0);
       {
         vec3 an = abs(vWNrm);

@@ -95,7 +95,7 @@ export function buildWaterfall(scene, { rocks, nav, post }) {
         float fl = wfFlow(fq);
         float flx = wfFlow(fq + vec2(0.07, 0.0)) - fl;
         float fly = wfFlow(fq + vec2(0.0, 0.07)) - fl;
-        normal = normalize(normal + (flx * vec3(1.0, 0.0, 0.0) + fly * vec3(0.0, 1.0, 0.0)) * 4.0);
+        normal = safeNormalize(normal + (flx * vec3(1.0, 0.0, 0.0) + fly * vec3(0.0, 1.0, 0.0)) * 4.0, normal);
       `],
       ['#include <transmission_fragment>', `
         {
@@ -145,7 +145,7 @@ export function buildWaterfall(scene, { rocks, nav, post }) {
       float n(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f); return mix(mix(h(i), h(i+vec2(1,0)), f.x), mix(h(i+vec2(0,1)), h(i+vec2(1,1)), f.x), f.y); }
       void main(){
         vec2 c = vUv - 0.5; float r = length(c) * 2.0;
-        float a = atan(c.y, c.x);
+        float a = atan(c.y, c.x + 1e-5);
         float f = n(vec2(a * 3.0, r * 6.0 - uTime * 3.0)) * n(vec2(a * 7.0 + 1.3, r * 11.0 - uTime * 5.0) );
         float m = smoothstep(1.0, 0.2, r) * smoothstep(0.25, 0.6, f + (1.0 - r) * 0.3);
         gl_FragColor = vec4(vec3(1.4), m * 0.55);

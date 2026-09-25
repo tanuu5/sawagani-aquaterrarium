@@ -39,6 +39,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(b'ok')
 
 
-port = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
+port = int(os.environ.get('PORT') or (sys.argv[1] if len(sys.argv) > 1 else 8765))
 print(f'http://localhost:{port}')
 http.server.ThreadingHTTPServer(('127.0.0.1', port), Handler).serve_forever()

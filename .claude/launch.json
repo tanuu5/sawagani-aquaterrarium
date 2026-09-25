@@ -4,8 +4,11 @@
     {
       "name": "kani-tank",
       "runtimeExecutable": "python3",
-      "runtimeArgs": ["tools/serve.py", "8765"],
-      "port": 8765
+      "runtimeArgs": [
+        "tools/serve.py"
+      ],
+      "port": 8765,
+      "autoPort": true
     }
   ]
 }

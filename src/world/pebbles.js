@@ -66,6 +66,7 @@ export function buildPebbles(scene) {
   ];
   const meshes = [];
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), t = new THREE.Vector3();
+  const bb = new THREE.Box3();
   const up = new THREE.Vector3(0, 1, 0), nrm = new THREE.Vector3(), q2 = new THREE.Quaternion();
   const col = new THREE.Color();
   let seed = 100;
@@ -73,6 +74,7 @@ export function buildPebbles(scene) {
     const per = Math.ceil(tier.count / tier.variants);
     for (let v = 0; v < tier.variants; v++) {
       const geo = pebbleGeo(seed++, tier.detail);
+      geo.computeBoundingBox();
       const im = new THREE.InstancedMesh(geo, mat, per);
       let n = 0, guard = 0;
       while (n < per && guard++ < per * 60) {
@@ -97,6 +99,15 @@ export function buildPebbles(scene) {
         s.set(r, r, r);
         t.set(x, h - r * 0.18 * (0.5 + rng.next()), z);
         m4.compose(t, q, s);
+        // ガラスにめり込まないよう内側へ寄せる
+        bb.copy(geo.boundingBox).applyMatrix4(m4);
+        const gx = Math.max(0, TANK.ix0 + 0.02 - bb.min.x) - Math.max(0, bb.max.x - (TANK.ix1 - 0.02));
+        const gz = Math.max(0, TANK.iz0 + 0.02 - bb.min.z) - Math.max(0, bb.max.z - (TANK.iz1 - 0.02));
+        if (gx || gz) {
+          t.x += gx; t.z += gz;
+          t.y += heightAt(t.x, t.z) - heightAt(x, z);
+          m4.compose(t, q, s);
+        }
         im.setMatrixAt(n, m4);
         const c = palette[Math.floor(rng.next() * palette.length)];
         const k = 0.8 + rng.next() * 0.4;
