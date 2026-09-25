@@ -134,6 +134,30 @@ export class NavMap {
         this.gCost[k] = cost;
       }
     }
+    // 歩ける場所のつながり。岩の上などの孤立した場所を除いた、いちばん広い領域を「歩ける場所」とする
+    this.gComp = new Int32Array(n).fill(-1);
+    let bestN = 0;
+    for (let s = 0; s < n; s++) {
+      if (this.gComp[s] !== -1 || this.gCost[s] === Infinity) continue;
+      const id = s;
+      const stack = [s];
+      this.gComp[s] = id;
+      let cnt = 0;
+      while (stack.length) {
+        const cur = stack.pop();
+        cnt++;
+        const ci = cur % this.gx, cj = (cur / this.gx) | 0;
+        for (let b = -1; b <= 1; b++) for (let a = -1; a <= 1; a++) {
+          const ii = ci + a, jj = cj + b;
+          if ((!a && !b) || ii < 0 || jj < 0 || ii >= this.gx || jj >= this.gz) continue;
+          const nk = jj * this.gx + ii;
+          if (this.gComp[nk] !== -1 || this.gCost[nk] === Infinity) continue;
+          this.gComp[nk] = id;
+          stack.push(nk);
+        }
+      }
+      if (cnt > bestN) { bestN = cnt; this.mainComp = id; }
+    }
   }
 
   cellOf(x, z) {
@@ -145,6 +169,36 @@ export class NavMap {
   passable(x, z) {
     const [i, j] = this.cellOf(x, z);
     return this.gCost[j * this.gx + i] < Infinity;
+  }
+  walkable(x, z) {
+    const [i, j] = this.cellOf(x, z);
+    return this.gComp[j * this.gx + i] === this.mainComp;
+  }
+
+  // 最寄りの歩ける場所。interior なら周りも歩ける所（岩ぎわを避ける）
+  nearestWalkable(x, z, interior = false) {
+    const [ci, cj] = this.cellOf(x, z);
+    const ok = (i, j) => {
+      if (i < 0 || j < 0 || i >= this.gx || j >= this.gz || this.gComp[j * this.gx + i] !== this.mainComp) return false;
+      if (!interior) return true;
+      for (let b = -1; b <= 1; b++) for (let a = -1; a <= 1; a++) {
+        const ii = i + a, jj = j + b;
+        if (ii < 0 || jj < 0 || ii >= this.gx || jj >= this.gz || this.gComp[jj * this.gx + ii] !== this.mainComp) return false;
+      }
+      return true;
+    };
+    let best = null, bd = Infinity;
+    for (let r = 0; r < Math.max(this.gx, this.gz); r++) {
+      // 正方形の輪を外へ広げ、見つかった距離より内側の輪がなくなったら終わる
+      if (best && (r - 1) * this.cs > bd) break;
+      for (let b = -r; b <= r; b++) for (let a = -r; a <= r; a++) {
+        if (Math.max(Math.abs(a), Math.abs(b)) !== r || !ok(ci + a, cj + b)) continue;
+        const [px, pz] = this.cellCenter(ci + a, cj + b);
+        const d = Math.hypot(px - x, pz - z);
+        if (d < bd) { bd = d; best = [px, pz]; }
+      }
+    }
+    return best || (interior ? this.nearestWalkable(x, z, false) : [x, z]);
   }
 
   // 最寄りの通行可能セル
@@ -238,7 +292,7 @@ export class NavMap {
     for (let t = 0; t < tries; t++) {
       const x = rng.range(this.x0 + 1.5, this.x1 - 1.5);
       const z = rng.range(this.z0 + 1.5, this.z1 - 1.5);
-      if (!this.passable(x, z)) continue;
+      if (!this.walkable(x, z)) continue;
       if (pred && !pred(x, z)) continue;
       return [x, z];
     }

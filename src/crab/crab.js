@@ -7,6 +7,9 @@ const D2R = Math.PI / 180;
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _q = new THREE.Quaternion(), _e = new THREE.Euler();
 const UP = new THREE.Vector3(0, 1, 0);
 const _ext = {};
+const _frustum = new THREE.Frustum(), _m4 = new THREE.Matrix4(), _sphere = new THREE.Sphere();
+// じっとしているのが自然な状態
+const RESTING = new Set(['hide', 'soak', 'eat', 'forage', 'perch']);
 
 // 鉗脚のポーズ（左側基準、度）
 const POSES = {
@@ -60,6 +63,9 @@ export class Crab {
     this.pitch = 0; this.roll = 0;
     this.bob = 0;
     this.time = 0;
+    // 動けなくなっていないかの見張り
+    this.stillX = this.pos.x; this.stillZ = this.pos.z; this.stillT = 0; this.offT = 0;
+    this.rescuePath = null;
     this.wet = 0;
     this.submerged = 0;
 
@@ -112,10 +118,26 @@ export class Crab {
   homeWorld(leg, out) {
     out.copy(leg.homeLocal).multiplyScalar(this.scale).applyAxisAngle(UP, this.heading);
     out.x += this.pos.x; out.z += this.pos.z;
-    // 足先はガラスの内側まで（壁ぎわではガラスに脚を突っ張る）
+    return this.footOnGround(out);
+  }
+
+  // 足を置く場所。足先はガラスの内側まで（壁ぎわではガラスに脚を突っ張る）。
+  // 切り立った岩の上や段差の下など届かない高さなら、体に寄せて届く所（岩の根元など）に置く
+  footOnGround(out) {
+    const nav = this.env.nav, s = this.scale;
     out.x = clamp(out.x, TANK.ix0 + 0.15, TANK.ix1 - 0.15);
     out.z = clamp(out.z, TANK.iz0 + 0.15, TANK.iz1 - 0.15);
-    out.y = this.env.nav.groundAt(out.x, out.z);
+    out.y = nav.groundAt(out.x, out.z);
+    const base = nav.groundAt(this.pos.x, this.pos.z);
+    const lo = base - 0.9 * s, hi = base + 1.2 * s;
+    if (out.y >= lo && out.y <= hi) return out;
+    const fx = out.x, fz = out.z;
+    for (let t = 0.85; t > 0.2; t -= 0.15) {
+      const x = this.pos.x + (fx - this.pos.x) * t, z = this.pos.z + (fz - this.pos.z) * t;
+      const y = nav.groundAt(x, z);
+      if (y >= lo && y <= hi) return out.set(x, y, z);
+    }
+    out.y = clamp(out.y, lo, hi);
     return out;
   }
 
@@ -138,7 +160,7 @@ export class Crab {
 
   // 進めなくなったら諦める（岩の隙間や他のカニとの押し合いで詰まった時）
   checkStuck(dt) {
-    if (!this.path) return;
+    if (!this.path || this.rescuing) return;
     this.progT += dt;
     if (this.progT < 2.5) return;
     const moved = Math.hypot(this.pos.x - this.progX, this.pos.z - this.progZ);
@@ -186,6 +208,7 @@ export class Crab {
   }
 
   steer(dt) {
+    const ox = this.pos.x, oz = this.pos.z;
     this.desiredVel.set(0, 0, 0);
     let arriving = false;
     if (this.path && this.pathI < this.path.length) {
@@ -203,6 +226,14 @@ export class Crab {
       } else {
         let sp = this.moveSpeed;
         if (last) sp *= clamp(d / 1.2, 0.25, 1);
+        // 岩から降りるときは、急な所ほどゆっくり伝い降りる
+        if (this.rescuing) {
+          const nav = this.env.nav, e = 0.3;
+          const slope = Math.abs(nav.groundAt(this.pos.x + (dx / d) * e, this.pos.z + (dz / d) * e) - nav.groundAt(this.pos.x, this.pos.z)) / e;
+          sp = clamp(1.6 / Math.max(slope, 0.1), 0.12, sp);
+          // 体が下りきるまでは、横へ進みすぎない
+          if (this.bodyY - nav.groundAt(this.pos.x, this.pos.z) > 1.6 * this.scale) sp = Math.min(sp, 0.15);
+        }
         arriving = last;
         this.desiredVel.set(dx / d * sp, 0, dz / d * sp);
       }
@@ -286,7 +317,68 @@ export class Crab {
       this.pos.x = clamp(this.pos.x, TANK.ix0 + m, TANK.ix1 - m);
       this.pos.z = clamp(this.pos.z, TANK.iz0 + m, TANK.iz1 - m);
     }
+    // 押されても、岩の斜面や登れない岩の上には入らない（手前で止まるか、岩に沿って滑る）
+    const nav = this.env.nav;
+    if (nav.walkable(ox, oz) && !nav.walkable(this.pos.x, this.pos.z)) {
+      if (nav.walkable(this.pos.x, oz)) { this.pos.z = oz; this.vel.z = 0; }
+      else if (nav.walkable(ox, this.pos.z)) { this.pos.x = ox; this.vel.x = 0; }
+      else { this.pos.x = ox; this.pos.z = oz; this.vel.set(0, 0, 0); }
+    }
     return arriving;
+  }
+
+  get rescuing() { return !!this.path && this.path === this.rescuePath; }
+
+  // 歩ける場所の外（岩の斜面や岩の上）に出てしまったり、ずっと動けずにいたりしたら抜け出す
+  watchdog(dt) {
+    const nav = this.env.nav;
+    const onGround = nav.walkable(this.pos.x, this.pos.z);
+    // 歩ける所に下りきったら（または長引いたら）救出を終える
+    if (this.rescuing && ((onGround && this.bodyY - nav.groundAt(this.pos.x, this.pos.z) < 1.1 * this.scale) || this.stateT > 15)) {
+      this.setPath(null);
+      this.setState('idle', this.rng.range(1, 2.5));
+    }
+    this.offT = onGround ? 0 : this.offT + dt;
+    if (Math.hypot(this.pos.x - this.stillX, this.pos.z - this.stillZ) > 0.4) {
+      this.stillX = this.pos.x; this.stillZ = this.pos.z; this.stillT = 0;
+    } else if (!RESTING.has(this.state)) this.stillT += dt;
+    if (this.offT > 1 && !this.rescuing) this.rescue();
+    else if (this.stillT > 20) {
+      this.stillT = 0;
+      this.setPath(null);
+      this.chooseActivity();
+    }
+  }
+
+  rescue() {
+    const nav = this.env.nav;
+    if (this.food) { this.food.heldBy = null; this.food.claimedBy = null; this.food = null; }
+    const target = nav.nearestWalkable(this.pos.x, this.pos.z, true);
+    // 見られていなければ、そのまま近くの歩ける場所へ移す
+    if (!this.isVisible(this.pos.x, this.bodyY, this.pos.z) && !this.isVisible(target[0], nav.groundAt(target[0], target[1]), target[1])) {
+      this.pos.x = target[0]; this.pos.z = target[1];
+      this.vel.set(0, 0, 0);
+      this.setPath(null);
+      this.placeInitial();
+      this.setState('idle', this.rng.range(1, 3));
+      this.offT = 0;
+      return;
+    }
+    // 見えているときは、岩を伝って歩いて降りる
+    this.rescuePath = [[this.pos.x, this.pos.z], target];
+    this.setPath(this.rescuePath, 2.2, 'side');
+    this.setState('walk', 40);
+  }
+
+  // カメラに映っているか
+  isVisible(x, y, z) {
+    const cam = this.env.camera;
+    if (!cam) return true;
+    cam.updateMatrixWorld();
+    _frustum.setFromProjectionMatrix(_m4.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse));
+    _sphere.center.set(x, y, z);
+    _sphere.radius = 3.5 * this.scale;
+    return _frustum.intersectsSphere(_sphere);
   }
 
   // ---- 脚 ----
@@ -308,12 +400,11 @@ export class Crab {
         const c = Math.cos(a), sn = Math.sin(a);
         _v.x = this.pos.x + rx * c + rz * sn; _v.z = this.pos.z - rx * sn + rz * c;
       }
-      _v.x = clamp(_v.x, TANK.ix0 + 0.15, TANK.ix1 - 0.15);
-      _v.z = clamp(_v.z, TANK.iz0 + 0.15, TANK.iz1 - 0.15);
-      _v.y = this.env.nav.groundAt(_v.x, _v.z);
+      this.footOnGround(_v);
       leg.predicted = leg.predicted || new THREE.Vector3();
       leg.predicted.copy(_v);
-      const d = Math.hypot(_v.x - leg.foot.x, _v.z - leg.foot.z);
+      // 高さが大きく変わった足（岩から降りた時など）も置き直す
+      const d = Math.hypot(_v.x - leg.foot.x, _v.z - leg.foot.z, (_v.y - leg.foot.y) * 0.6);
       need[leg.group] = Math.max(need[leg.group], d);
     }
     const anySwing = this.swinging[0] || this.swinging[1];
@@ -375,7 +466,10 @@ export class Crab {
     this.bob = lerp(this.bob, sw ? -0.035 * s : 0, 1 - Math.exp(-dt * 20));
     const breathe = Math.sin(this.time * 2.1) * 0.006 * s;
     const k = snap ? 1 : 1 - Math.exp(-dt * 10);
+    const prevY = this.bodyY;
     this.bodyY = lerp(this.bodyY, target + this.bob + breathe, k);
+    // 岩から降りるときは、落ちずに伝い降りる
+    if (this.rescuing && !snap) this.bodyY = Math.max(this.bodyY, prevY - 2.2 * s * dt);
     this.baseY = lerp(this.baseY, center, snap ? 1 : 1 - Math.exp(-dt * 6));
     // 傾き
     const r = 1.3 * s;
@@ -523,7 +617,8 @@ export class Crab {
     this.pitchAdd = 0;
 
     // 餌の匂い
-    if (this.state !== 'flee' && this.state !== 'eat' && this.state !== 'toFood' && this.state !== 'startled' && env.foods) {
+    if (this.state !== 'flee' && this.state !== 'eat' && this.state !== 'toFood' && this.state !== 'startled' && env.foods &&
+      !this.rescuing && env.nav.walkable(this.pos.x, this.pos.z)) {
       const f = env.findFood(this);
       if (f && (this.stateT > 0.6 || this.state === 'idle')) {
         this.food = f;
@@ -738,6 +833,7 @@ export class Crab {
     this.think(dt);
     this.steer(dt);
     this.checkStuck(dt);
+    this.watchdog(dt);
     this.updateBody(dt);
     this.updateLegs(dt);
     this.applyIK();

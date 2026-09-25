@@ -98,7 +98,7 @@ resize();
 
 const world = { scene, camera, renderer, post, controls, crabs: [], loadTimes };
 const env = {
-  nav: null, ripple: null, crabs: world.crabs, foods: null, shelters: [], night: 0,
+  nav: null, ripple: null, crabs: world.crabs, foods: null, shelters: [], night: 0, camera,
   findFood: (c) => (env.foods ? env.foods.find(c) : null),
   onBite: (c) => env.foods && env.foods.bite(c),
   onFoam: (c) => env.bubbles && env.bubbles.foam.start(c),
@@ -171,7 +171,7 @@ async function init() {
     [-6.0, -3.6, 0.5, 6], [-14.0, -2.0, 3, 5], [6.0, -6.6, -1, 6],
   ];
   env.shelters = spots.map(([x, z, fx, fz]) => {
-    const p = env.nav.nearestPassable(x, z);
+    const p = env.nav.nearestWalkable(x, z);
     p.face = [fx, fz];
     return p;
   });
@@ -186,7 +186,7 @@ async function init() {
     { name: 'アオ', sex: 'male', palette: 'blue', scale: 0.86, x: 3.5, z: 6.8, heading: 2.2, seed: 37, boldness: 0.55, activity: 0.7, water: 0.8, bigRight: false },
   ];
   for (const d of defs) {
-    const [x, z] = env.nav.nearestPassable(d.x, d.z);
+    const [x, z] = env.nav.nearestWalkable(d.x, d.z, true);
     const c = new Crab(parts, { ...d, x, z }, env);
     scene.add(c.group);
     world.crabs.push(c);
