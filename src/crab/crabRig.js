@@ -25,7 +25,7 @@ export const PALETTES = {
   },
 };
 
-function crabMaterial(palette) {
+function crabMaterial(palette, water = true) {
   const m = new THREE.MeshPhysicalMaterial({
     roughness: 0.45, metalness: 0, clearcoat: 0.6, clearcoatRoughness: 0.28, specularIntensity: 0.7,
   });
@@ -103,7 +103,7 @@ function crabMaterial(palette) {
       reflectedLight.indirectDiffuse += diffuseColor.rgb * (1.0 - vZone.x) * 0.02;`],
     ],
   });
-  waterFxPatch(m, { wetHeight: 0.05, wetDarken: 0.08, wetGloss: 0.2 });
+  if (water) waterFxPatch(m, { wetHeight: 0.05, wetDarken: 0.08, wetGloss: 0.2 });
   m.userData.crabUniforms = u;
   return m;
 }
@@ -115,7 +115,7 @@ function quatYZ(yaw, tilt, out = new THREE.Quaternion()) {
 }
 
 export class CrabRig {
-  constructor(parts, { sex = 'male', palette = PALETTES.brown, bigRight = true } = {}) {
+  constructor(parts, { sex = 'male', palette = PALETTES.brown, bigRight = true, water = true } = {}) {
     this.sex = sex;
     this.bones = [];
     this.legs = [];
@@ -233,7 +233,7 @@ export class CrabRig {
       geos.push(g);
     }
     const merged = mergeGeometries(geos, false);
-    this.material = crabMaterial(palette);
+    this.material = crabMaterial(palette, water);
     const mesh = new THREE.SkinnedMesh(merged, this.material);
     mesh.add(root);
     mesh.bind(new THREE.Skeleton(bones));

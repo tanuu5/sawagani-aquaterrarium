@@ -81,3 +81,7 @@ tools/serve.py      開発用サーバー
 - [three.js](https://github.com/mrdoob/three.js)（MIT License）を jsDelivr から読み込んでいます
 - フォント: [Shippori Mincho B1](https://fonts.google.com/specimen/Shippori+Mincho+B1)、[Zen Kaku Gothic New](https://fonts.google.com/specimen/Zen+Kaku+Gothic+New)（SIL Open Font License、Google Fonts）
 - サワガニの形と色は、Wikimedia Commons の [Geothelphusa dehaani](https://commons.wikimedia.org/wiki/Category:Geothelphusa_dehaani) の写真を参考にしました（画像そのものは使っていません）
+
+## Clawd について
+
+Clawd は Anthropic の Claude Code のマスコットです。この作品に出てくる Clawd はファンによる二次創作で、Anthropic の公式のものではありません。

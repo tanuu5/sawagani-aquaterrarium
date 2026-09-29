@@ -111,6 +111,13 @@
     transition: opacity 0.35s, transform 0.35s; z-index: 6; max-width: calc(100vw - 32px); text-align: center;
   }
   #hint.show { opacity: 1; transform: translate(-50%, 0); }
+  #notice {
+    position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(2px + env(safe-area-inset-bottom, 0px));
+    font-size: 11px; line-height: 1.4; color: var(--ink); opacity: 0; pointer-events: none; z-index: 6;
+    width: max-content; max-width: calc(100vw - 32px); text-align: center; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+    transition: opacity 1.2s;
+  }
+  #notice.show { opacity: 0.62; }
 
   /* 解説 */
   #info {
@@ -155,10 +162,12 @@
     .tool span { display: none; }
     .seg .tool { padding: 8px 9px; }
     #hint { bottom: calc(150px + env(safe-area-inset-bottom, 0px)); font-size: 12px; }
+    /* 狭い画面では折り返してドックに隠れるので、タイトルの下に出す */
+    #notice { bottom: auto; top: calc(84px + env(safe-area-inset-top, 0px)); font-size: 10.5px; }
     #info { bottom: calc(150px + env(safe-area-inset-bottom, 0px)); }
   }
   @media (prefers-reduced-motion: reduce) {
-    #hint, #loader, .tool { transition: none; }
+    #hint, #notice, #loader, .tool { transition: none; }
   }
 </style>
 </head>
@@ -179,6 +188,7 @@
 <nav id="roster" aria-label="サワガニ"></nav>
 
 <div id="hint" class="glass" role="status" aria-live="polite"></div>
+<div id="notice" role="note">Clawd は Anthropic の Claude Code のマスコットです。ここに出てくる姿はファンによる二次創作で、Anthropic の公式のものではありません。</div>
 
 <div id="dock" class="glass" role="toolbar" aria-label="操作">
   <button class="tool" id="btn-feed" aria-pressed="false" title="えさをあげる（水槽をクリックして落とす）">

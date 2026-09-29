@@ -17,6 +17,7 @@ import { buildLeafLitter, buildDriftwood } from './world/decor.js';
 import { buildWaterfall } from './world/waterfall.js';
 import { startCrabParts } from './crab/crabModel.js';
 import { Crab } from './crab/crab.js';
+import { DeskToy } from './world/deskToy.js';
 
 const loadbar = document.getElementById('loadbar');
 const loadmsg = document.getElementById('loadmsg');
@@ -192,6 +193,9 @@ async function init() {
     world.crabs.push(c);
   }
 
+  // 隠し機能: デスクライトの下の Clawd の置物
+  world.deskToy = new DeskToy(scene, parts, { x: -43, y: world.room.DESK_Y, z: -9, yaw: 0.55 });
+
   env.foods = new Foods(scene, env);
   env.bubbles = new Bubbles(scene, env);
 
@@ -229,6 +233,7 @@ function simulate(dt) {
   for (const c of world.crabs) c.update(dt);
   if (env.foods) env.foods.update(dt);
   if (env.bubbles) env.bubbles.update(dt);
+  if (world.deskToy) world.deskToy.update(dt);
   if (world.ui) world.ui.update(dt, t);
   controls.update();
   return t;

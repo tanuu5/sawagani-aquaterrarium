@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { CrabRig, PALETTES } from './crabRig.js';
 import { WATER_LEVEL, TANK } from '../core/shared.js';
 import { RNG, clamp, lerp, smoothstep } from '../core/rng.js';
+import { ClawdSkin } from './clawd.js';
 
 const D2R = Math.PI / 180;
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _q = new THREE.Quaternion(), _e = new THREE.Euler();
@@ -838,6 +839,18 @@ export class Crab {
     this.updateLegs(dt);
     this.applyIK();
     this.animateParts(dt);
+    if (this.clawd && this.clawd.group.visible) this.clawd.update(dt);
+  }
+
+  // 見た目の切り替え（Clawd モード）。骨格と行動はそのまま
+  setClawd(on) {
+    if (on && !this.clawd) this.clawd = new ClawdSkin(this);
+    if (this.clawd) {
+      this.clawd.setVisible(on);
+      if (on) this.clawd.update(0);
+    }
+    // メッシュごと隠すと子の骨に付けた Clawd も描かれないので、マテリアルだけ隠す
+    this.rig.material.visible = !on;
   }
 
   // 口の位置（ワールド）

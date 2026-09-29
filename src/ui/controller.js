@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { shared, TANK, WATER_LEVEL } from '../core/shared.js';
 import { PALETTES } from '../crab/crabRig.js';
+import { CLAWD_HEX } from '../crab/clawd.js';
 import { Soundscape } from './audio.js';
 import { clamp, lerp } from '../core/rng.js';
 
@@ -35,8 +36,10 @@ export class Controller {
     this._raycaster = new THREE.Raycaster();
     this._ndc = new THREE.Vector2();
     this.$ = (id) => document.getElementById(id);
+    this.clawd = false;
     this.buildRoster();
     this.bind();
+    if (new URLSearchParams(location.search).has('clawd')) this.setClawd(true, false);
     this.gaugeT = 0;
   }
 
@@ -117,6 +120,11 @@ export class Controller {
       down = null;
       if (moved < 6 && dt < 500) this.click(e.clientX, e.clientY);
     });
+    // 置物の上ではカーソルを指に
+    canvas.addEventListener('pointermove', (e) => {
+      if (down || !this.world.deskToy || e.pointerType !== 'mouse') return;
+      canvas.style.cursor = this.world.deskToy.hit(this.ray(e.clientX, e.clientY)) ? 'pointer' : '';
+    });
     this.controls.addEventListener('start', () => { this.lastInteract = performance.now(); this.fly = null; });
     const touch = () => { this.lastInteract = performance.now(); };
     window.addEventListener('pointerdown', touch, { passive: true });
@@ -157,6 +165,7 @@ export class Controller {
 
   click(x, y) {
     const ray = this.ray(x, y);
+    if (this.world.deskToy && this.world.deskToy.hit(ray)) { this.setClawd(!this.clawd); return; }
     // カニを選ぶ
     let best = -1, bd = 1e9;
     this.world.crabs.forEach((c, i) => {
@@ -176,6 +185,25 @@ export class Controller {
       return;
     }
     if (best >= 0) this.follow(best);
+  }
+
+  // Clawd モード（隠し機能）: 見た目だけを Claude Code のマスコット風に差し替える。
+  // 机の上の置物を押すと切り替わり、置物のほうは Clawd とサワガニが入れ替わる
+  setClawd(on, animate = true) {
+    this.clawd = on;
+    for (const c of this.world.crabs) c.setClawd(on);
+    if (this.world.deskToy) this.world.deskToy.set(on, animate);
+    this.world.crabs.forEach((c, i) => {
+      const p = PALETTES[c.paletteKey];
+      const sw = this.cards[i].el.querySelector('.swatch');
+      sw.style.background = on ? CLAWD_HEX : toHex(p.carapace);
+      sw.style.setProperty('--c2', on ? CLAWD_HEX : toHex(p.leg));
+    });
+    // 二次創作である旨を、しばらく下部に薄く出す
+    const n = this.$('notice');
+    clearTimeout(this.noticeTimer);
+    n.classList.toggle('show', on);
+    if (on) this.noticeTimer = setTimeout(() => n.classList.remove('show'), 9000);
   }
 
   setFeed(on) {
